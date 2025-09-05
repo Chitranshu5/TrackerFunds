@@ -1,17 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Transaction } from '../../../ApiData';
 
-interface Transaction {
-  id: number;
-  userId: number;
-  userName: string;
-  type: 'lend' | 'borrow' | 'deposit';
-  amount: number;
-  date: string;
-  description: string;
-  category?: string; // optional category field
-}
+
 
 interface TransactionListProps {
   transactions: Transaction[];
@@ -42,7 +34,7 @@ const TransactionList: React.FC<TransactionListProps> = ({ transactions, onSeeAl
         {/* Details */}
         <View style={styles.transactionDetails}>
           <Text style={styles.transactionName}>{item.userName}</Text>
-          <Text style={styles.transactionDate}>{item.date}</Text>
+          {/* <Text style={styles.transactionDate}>{item.date}</Text> */}
           <Text style={styles.transactionDesc}>{item.description}</Text>
           <Text style={styles.transactionId}>ID: #{item.id}</Text>
         </View>

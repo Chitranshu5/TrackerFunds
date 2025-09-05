@@ -1,24 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
-// Define the types for your props
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-}
-
-interface Transaction {
-  id: number;
-  userId: number;
-  userName: string;
-  type: 'lend' | 'borrow' | 'deposit';
-  amount: number;
-  date: string;
-  description: string;
-}
+import { Transaction, User } from '../../../ApiData';
 
 interface UserListProps {
   users: User[];
@@ -26,7 +9,11 @@ interface UserListProps {
   onAddUser: () => void;
 }
 
-const UserList: React.FC<UserListProps> = ({ users, transactions, onAddUser }) => {
+const UserList: React.FC<UserListProps> = ({
+  users,
+  transactions,
+  onAddUser,
+}) => {
   return (
     <View style={styles.usersContainer}>
       <View style={styles.sectionHeader}>
@@ -48,13 +35,17 @@ const UserList: React.FC<UserListProps> = ({ users, transactions, onAddUser }) =
           </View>
           <View style={styles.userStats}>
             <Text style={styles.userStat}>
-              Lent: ${transactions
-                .filter(t => t.userId === user.id && t.type === 'lend')
+              Lent: $
+              {transactions
+                .filter(t => Number(t.userId) === user.id && t.type === 'lend')
                 .reduce((sum, t) => sum + t.amount, 0)}
             </Text>
             <Text style={styles.userStat}>
-              Borrowed: ${transactions
-                .filter(t => t.userId === user.id && t.type === 'borrow')
+              Borrowed: $
+              {transactions
+                .filter(
+                  t => Number(t.userId) === user.id && t.type === 'borrow',
+                )
                 .reduce((sum, t) => sum + t.amount, 0)}
             </Text>
           </View>

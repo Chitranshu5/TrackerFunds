@@ -727,190 +727,227 @@
 //   },
 // });
 
-import React, { useState } from 'react';
+
+
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
-  Text, 
   StyleSheet, 
   ScrollView, 
-  TouchableOpacity, 
   Alert
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useNavigation } from '@react-navigation/native';
+import Realm from "realm";
+
 import TransactionList from './page/home/TransactionsList';
 import UserList from './page/home/UsersList';
 import AddUserModal from './page/home/AddUserModal';
 import AddTransactionModal from './page/home/AddTransactionModal';
-import { useNavigation } from '@react-navigation/native';
-import { initialTransactions, initialUsers } from '../ApiData';
-
-// Define the types for your data
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-}
-
-interface Transaction {
-  id: number;
-  userId: number;
-  userName: string;
-  type: 'lend' | 'borrow' | 'deposit';
-  amount: number;
-  date: string;
-  description: string;
-}
-
-
+import { 
+  calculateNetBalance, 
+  calculateTotalBorrowed, 
+  calculateTotalDeposited, 
+  calculateTotalLent, 
+  Transaction as TransactionType, 
+  User as UserType 
+} from '../ApiData';
+import Header from './page/home/Header';
+import QuickStats from './page/home/QuickStats';
+import ActionButtons from './page/home/ActionButtons';
+import { getRealm } from './bd/realm';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
- const [users, setUsers] = useState<User[]>(initialUsers);
-  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  const [users, setUsers] = useState<UserType[]>([]);
+  const [transactions, setTransactions] = useState<TransactionType[]>([]);
   const [showUserForm, setShowUserForm] = useState(false);
   const [showTransactionForm, setShowTransactionForm] = useState(false);
 
-  // Calculate totals
-  const totalLent = transactions
-    .filter(t => t.type === 'lend')
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const totalBorrowed = transactions
-    .filter(t => t.type === 'borrow')
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const totalDeposited = transactions
-    .filter(t => t.type === 'deposit')
-    .reduce((sum, t) => sum + t.amount, 0);
-    
-  const netBalance = totalDeposited + totalLent - totalBorrowed;
+  // 📊 Calculate stats
+  const totalLent = calculateTotalLent(transactions);
+  const totalBorrowed = calculateTotalBorrowed(transactions);
+  const totalDeposited = calculateTotalDeposited(transactions);
+  const netBalance = calculateNetBalance(transactions);
 
-  // Add new user
-  const addUser = (newUser: { name: string; email: string; phone: string }) => {
-    const user: User = {
-      id: users.length + 1,
-      name: newUser.name,
-      email: newUser.email,
-      phone: newUser.phone
+  // 🔄 Load Realm data
+  useEffect(() => {
+    const realm = getRealm();
+
+    const loadedUsers = realm.objects<UserType>("User");
+    const loadedTransactions = realm.objects<TransactionType>("Transaction");
+
+    // Convert Realm objects → plain JS and keep ObjectId as string
+    const usersArray = loadedUsers.map(u => ({
+      ...u,
+      _id: u._id.toHexString(),
+    }));
+    const transactionsArray = loadedTransactions.map(t => ({
+      ...t,
+      _id: t._id.toHexString(),
+      userId: t.userId.toHexString(),
+    }));
+
+    console.log("✅ Loaded users from Realm:", usersArray);
+    console.log("✅ Loaded transactions from Realm:", transactionsArray);
+
+    setUsers(usersArray);
+    setTransactions(transactionsArray);
+
+    return () => {
+      if (!realm.isClosed) realm.close();
     };
-    
-    setUsers([...users, user]);
-    setShowUserForm(false);
-    Alert.alert('Success', 'User added successfully');
+  }, []);
+
+  // 👤 Add User
+  const addUser = (newUser: { name: string; email: string; phone?: string }) => {
+    const realm = getRealm();
+    try {
+      let createdUser: UserType;
+
+      realm.write(() => {
+        const lastUser = realm.objects<UserType>("User").sorted("id", true)[0];
+        const nextId = lastUser ? lastUser.id + 1 : 1;
+
+        createdUser = realm.create<UserType>("User", {
+          _id: new Realm.BSON.ObjectId(),
+          id: nextId,
+          name: newUser.name,
+          email: newUser.email,
+          phone: newUser.phone ?? null,
+        });
+
+        console.log("✅ User added to Realm:", createdUser);
+      });
+
+      if (createdUser) {
+        // Convert ObjectId to string for state
+        setUsers(prev => [...prev, { ...createdUser, _id: createdUser._id.toHexString() }]);
+        setShowUserForm(false);
+        Alert.alert("Success", "User added successfully");
+      }
+    } catch (err) {
+      console.error("❌ Error adding user:", err);
+      Alert.alert("Error", "Could not add user");
+    }
   };
 
-  // Add new transaction
-  const addTransaction = (newTransaction: { userId: string; type: string; amount: string; description: string }) => {
-    const user = users.find(u => u.id === parseInt(newTransaction.userId));
+  // 💸 Add Transaction
+  const addTransaction = (newTransaction: {
+    userId: string;
+    type: string;
+    amount: string;
+    description: string;
+  }) => {
+    console.log("💡 Adding transaction:", newTransaction);
+
+    // 🔍 Find user by string _id
+    const user = users.find(u => u._id === newTransaction.userId);
+    console.log("🔍 Selected user:", user);
+
     if (!user) {
-      Alert.alert('Error', 'User not found');
+      Alert.alert("Error", "User not found");
+      console.warn("❌ User not found for transaction!");
       return;
     }
-    
-    const transaction: Transaction = {
-      id: transactions.length + 1,
-      userId: parseInt(newTransaction.userId),
-      userName: user.name,
-      type: newTransaction.type as 'lend' | 'borrow' | 'deposit',
-      amount: parseFloat(newTransaction.amount),
-      date: new Date().toISOString().split('T')[0],
-      description: newTransaction.description
-    };
-    
-    setTransactions([...transactions, transaction]);
-    setShowTransactionForm(false);
-    Alert.alert('Success', 'Transaction added successfully');
+
+    try {
+      const realm = getRealm();
+      let createdTransaction: TransactionType | null = null;
+
+      realm.write(() => {
+        const lastTransaction = realm.objects<TransactionType>("Transaction").sorted("id", true)[0];
+        const nextId = lastTransaction ? lastTransaction.id + 1 : 1;
+
+        const realmTransaction = realm.create<TransactionType>("Transaction", {
+          _id: new Realm.BSON.ObjectId(),
+          id: nextId,
+          userId: new Realm.BSON.ObjectId(user._id), // string → ObjectId
+          userName: user.name,
+          type: newTransaction.type as "lend" | "borrow" | "deposit",
+          amount: parseFloat(newTransaction.amount),
+          date: new Date(),
+          description: newTransaction.description ?? "",
+          category: null,
+        });
+
+        createdTransaction = {
+          _id: realmTransaction._id,
+          id: realmTransaction.id,
+          userId: realmTransaction.userId,
+          userName: realmTransaction.userName,
+          type: realmTransaction.type,
+          amount: realmTransaction.amount,
+          date: realmTransaction.date,
+          description: realmTransaction.description,
+          category: realmTransaction.category,
+        };
+
+        console.log("✅ Transaction created in Realm:", createdTransaction);
+      });
+
+      // Convert ObjectIds to string for state
+      if (createdTransaction) {
+        setTransactions(prev => [
+          ...prev, 
+          {
+            ...createdTransaction, 
+            _id: createdTransaction._id.toHexString(),
+            userId: (createdTransaction.userId as Realm.BSON.ObjectId).toHexString(),
+          }
+        ]);
+        setShowTransactionForm(false);
+        Alert.alert("Success", "Transaction added successfully");
+        console.log("🌟 Updated state with new transaction:", createdTransaction);
+      }
+
+    } catch (err) {
+      console.error("❌ Error adding transaction:", err);
+      Alert.alert("Error", "Could not add transaction");
+    }
   };
 
   return (
     <View style={styles.screen}>
       <ScrollView style={styles.container}>
         {/* Header with Net Balance */}
-        <View style={styles.header}>
-          <Text style={styles.balanceLabel}>Net Balance</Text>
-          <Text style={styles.balanceAmount}>${netBalance.toLocaleString()}</Text>
-          <View style={styles.balanceChange}>
-            <Icon 
-              name={netBalance >= 0 ? "trending-up" : "trending-down"} 
-              size={16} 
-              color={netBalance >= 0 ? "#4caf50" : "#ff5252"} 
-            />
-            <Text style={[
-              styles.balanceChangeText, 
-              { color: netBalance >= 0 ? "#4caf50" : "#ff5252" }
-            ]}>
-              {netBalance >= 0 ? 'Positive' : 'Negative'} Balance
-            </Text>
-          </View>
-        </View>
+        <Header netBalance={netBalance} />
 
         {/* Quick Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(124, 77, 255, 0.2)' }]}>
-              <Icon name="cash-plus" size={24} color="#7c4dff" />
-            </View>
-            <Text style={styles.statAmount}>${totalLent}</Text>
-            <Text style={styles.statLabel}>Total Lent</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(255, 109, 74, 0.2)' }]}>
-              <Icon name="cash-minus" size={24} color="#ff6d4a" />
-            </View>
-            <Text style={styles.statAmount}>${totalBorrowed}</Text>
-            <Text style={styles.statLabel}>Total Borrowed</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: 'rgba(76, 175, 80, 0.2)' }]}>
-              <Icon name="bank" size={24} color="#4caf50" />
-            </View>
-            <Text style={styles.statAmount}>${totalDeposited}</Text>
-            <Text style={styles.statLabel}>Total Deposited</Text>
-          </View>
-        </View>
+        <QuickStats
+          totalLent={totalLent}
+          totalBorrowed={totalBorrowed}
+          totalDeposited={totalDeposited}
+        />
 
         {/* Action Buttons */}
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => setShowUserForm(true)}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: 'rgba(124, 77, 255, 0.2)' }]}>
-              <Icon name="account-plus" size={24} color="#7c4dff" />
-            </View>
-            <Text style={styles.actionText}>Add User</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => setShowTransactionForm(true)}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: 'rgba(76, 175, 80, 0.2)' }]}>
-              <Icon name="plus-circle" size={24} color="#4caf50" />
-            </View>
-            <Text style={styles.actionText}>Add Transaction</Text>
-          </TouchableOpacity>
-        </View>
+        <ActionButtons
+          onAddUser={() => setShowUserForm(true)}
+          onAddTransaction={() => setShowTransactionForm(true)}
+        />
 
         {/* Recent Transactions */}
-        <TransactionList transactions={transactions} onSeeAll={()=>navigation.navigate('Trans')} />
+        <TransactionList 
+          transactions={transactions}
+          onSeeAll={() => navigation.navigate('Trans')}
+        />
 
         {/* Users List */}
-        <UserList users={users} transactions={transactions} onAddUser={() => setShowUserForm(true)} />
+        <UserList 
+          users={users}
+          transactions={transactions}
+          onAddUser={() => setShowUserForm(true)}
+        />
       </ScrollView>
 
       {/* Modals */}
-      <AddUserModal 
-        visible={showUserForm} 
-        onClose={() => setShowUserForm(false)} 
-        onAddUser={addUser} 
+      <AddUserModal
+        visible={showUserForm}
+        onClose={() => setShowUserForm(false)}
+        onAddUser={addUser}
       />
       <AddTransactionModal
-        visible={showTransactionForm} 
-        onClose={() => setShowTransactionForm(false)} 
+        visible={showTransactionForm}
+        onClose={() => setShowTransactionForm(false)}
         onAddTransaction={addTransaction}
         users={users}
       />
@@ -926,84 +963,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-  },
-  header: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  balanceLabel: {
-    color: '#9e9ea7',
-    fontSize: 14,
-    marginBottom: 5,
-  },
-  balanceAmount: {
-    color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  balanceChange: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  balanceChangeText: {
-    marginLeft: 5,
-    fontSize: 14,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  statCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 15,
-    alignItems: 'center',
-    flex: 1,
-    marginHorizontal: 5,
-  },
-  statIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  statAmount: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  statLabel: {
-    color: '#9e9ea7',
-    fontSize: 12,
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  actionButton: {
-    alignItems: 'center',
-    flex: 1,
-    marginHorizontal: 10,
-  },
-  actionIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  actionText: {
-    color: '#fff',
-    fontSize: 12,
   },
 });

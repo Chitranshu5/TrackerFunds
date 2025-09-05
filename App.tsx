@@ -164,9 +164,9 @@ import React, {useEffect, useState} from 'react';
 import {SafeAreaView, ActivityIndicator, Text} from 'react-native';
 import {RealmProvider} from '@realm/react';
 import { getOrCreateRealmKey } from './srcc/bd/secure-key';
-import { Expense } from './srcc/bd/Expense';
+;
 import RootNavigator from './srcc/navigation/RootNavigator';
-import { User } from './srcc/bd/User';
+
 
 
 function KeyGate({children}: {children: React.ReactNode}) {
@@ -189,7 +189,7 @@ function KeyGate({children}: {children: React.ReactNode}) {
   }
 
   return (
-    <RealmProvider schema={[Expense, User]} path="secureExpense.realm" encryptionKey={key}>
+    <RealmProvider schema={[ ]} path="secureExpense.realm" encryptionKey={key}>
       {children}
     </RealmProvider>
   );
@@ -197,8 +197,8 @@ function KeyGate({children}: {children: React.ReactNode}) {
 
 export default function App() {
   return (
-    <KeyGate>
+    // <KeyGate>
       <RootNavigator/>
-    </KeyGate>
+    // </KeyGate>
   );
 }
